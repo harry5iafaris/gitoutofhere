@@ -3,9 +3,12 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 
 class Git {
     public static void main(String[] args) {
@@ -156,4 +159,17 @@ class Git {
             return;
         }
     }
+
+    public static void rebuildTree() throws IOException {
+        List<String> lines = Files.readAllLines(Path.of("git/index"));
+        String deepestName = "";
+        for (int i = 0; i < lines.size(); i++) {
+            String[] hashAndName = lines.get(i).split(" ");
+            if (hashAndName[1].split("/").length > deepestName.split("/").length) {
+                deepestName = hashAndName[1];
+            }
+        }
+        
+    }
+
 }
