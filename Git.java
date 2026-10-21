@@ -10,6 +10,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.time.LocalDateTime;
+import java.nio.file.StandardCopyOption;
 
 class Git {
     public static void main(String[] args) {
@@ -127,6 +129,7 @@ class Git {
             BufferedReader br = new BufferedReader(new FileReader("git/index"));
             String line;
             StringBuilder sheet = new StringBuilder();
+            boolean foundPath = false;
             while ((line = br.readLine()) != null) {
                 // checks if entry already exists
                 if (line.equals(entry)) {
@@ -136,6 +139,7 @@ class Git {
 
                 // checks change in file
                 if (line.split(" ")[1].equals(filePath) && !line.split(" ")[0].equals(hash)) {
+                    foundPath = true;
                     sheet.append(entry);
                     sheet.append("\n");
                 } else {
@@ -145,6 +149,11 @@ class Git {
             }
 
             br.close();
+
+            if (!foundPath) {
+                sheet.append(entry);
+                sheet.append("\n");
+            }
 
             // deletes last new line
             if (sheet.length() > 0) {
@@ -231,7 +240,7 @@ class Git {
             }
             working.append("tree " + treeHash + " " + deepest);
             workingList = working.toString();
-    
+
         }
         return createTree(workingList, "");
     }
@@ -244,12 +253,86 @@ class Git {
             int pathBreak = name.lastIndexOf("/");
             if (pathBreak != -1) {
                 String parent = name.substring(0, pathBreak);
-                if (parent.split("/").length > deepestName.split("/").length) {
+                if (deepestName.isEmpty() || parent.split("/").length > deepestName.split("/").length) {
                     deepestName = parent;
                 }
             }
         }
         return deepestName;
+    }
+
+    public static String commit(String author, String message)
+            throws IOException, NoSuchAlgorithmException {
+
+        String treeHash = createTrees();
+        String parentHash = Files.readString(Path.of("git/HEAD")).trim();
+        StringBuilder commitText = new StringBuilder();
+        commitText.append("tree: " + treeHash + "\n");
+
+        if (!parentHash.isEmpty()) {
+            commitText.append("parent: " + parentHash + "\n");
+        }
+
+        commitText.append("author: " + author + "\n");
+        commitText.append("date: " + LocalDateTime.now() + "\n");
+        commitText.append("message: " + message);
+
+        MessageDigest digest = MessageDigest.getInstance("SHA-1");
+        byte[] hash = digest.digest(commitText.toString().getBytes());
+        String commitHash = HexFormat.of().formatHex(hash);
+
+        File commitFile = new File("git/objects/" + commitHash);
+        FileWriter fw = new FileWriter(commitFile);
+        fw.write(commitText.toString());
+        fw.close();
+
+        FileWriter wr = new FileWriter("git/HEAD.tmp");
+        wr.write(commitHash);
+        wr.close();
+
+        Files.move(Path.of("git/HEAD.tmp"), Path.of("git/HEAD"), StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
+
+        return commitHash;
+    }
+
+    public static void regenerateIndex(String commitHash) throws IOException, NoSuchAlgorithmException {
+        List<String> commitLines = Files.readAllLines(Path.of("git/objects/" + commitHash));
+        String treeHash = commitLines.get(0).substring(6);
+        StringBuilder str = new StringBuilder();
+        regenerateIndexHelper(treeHash, "", str);
+        FileWriter wr = new FileWriter("git/index.tmp");
+        wr.write(str.toString());
+        wr.close();
+
+        Files.move(Path.of("git/index.tmp"), Path.of("git/index"), StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    public static void regenerateIndex() throws IOException, NoSuchAlgorithmException {
+        String commitHash = Files.readString(Path.of("git/HEAD")).trim();
+        List<String> commitLines = Files.readAllLines(Path.of("git/objects/" + commitHash));
+        String treeHash = commitLines.get(0).substring(6);
+        StringBuilder str = new StringBuilder();
+        regenerateIndexHelper(treeHash, "", str);
+        FileWriter wr = new FileWriter("git/index.tmp");
+        wr.write(str.toString());
+        wr.close();
+
+        Files.move(Path.of("git/index.tmp"), Path.of("git/index"), StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    public static void regenerateIndexHelper(String treeHash, String path, StringBuilder str) throws IOException {
+        List<String> objects = Files.readAllLines(Path.of("git/objects/" + treeHash));
+        for (String line : objects) {
+            String[] parts = line.split(" ", 3);
+            if (parts[0].equals("blob")) {
+                str.append(parts[1] + " " + path + parts[2] + "\n");
+            } else if (parts[0].equals("tree")) {
+                regenerateIndexHelper(parts[1], path + parts[2] + "/", str);
+            }
+        }
     }
 
 }
